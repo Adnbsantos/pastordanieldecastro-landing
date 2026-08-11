@@ -200,6 +200,7 @@ export default function Home() {
       <form onSubmit={handleSubmit} className="max-w-lg mx-auto">
         <div className="bg-[#1B2559] px-5 pt-5 pb-10 text-center">
           <div className="text-[#F0C24A] text-base font-bold tracking-wide">CADASTRO DE COLABORADOR TEMPORÁRIO</div>
+          <img src="/logo-daniel.png" alt="Pastor Daniel de Castro" className="h-16 mx-auto mt-3" />
         </div>
 
         <div className="flex justify-center -mt-8">
