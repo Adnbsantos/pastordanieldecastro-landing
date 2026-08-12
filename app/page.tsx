@@ -324,9 +324,9 @@ export default function Home() {
 
         <section className="bg-white mx-4 mt-4 rounded-xl p-5 border border-[#D3D1C7]">
           <h2 className="text-sm font-medium text-[#1B2559] mb-3">Dados bancários para pagamento</h2>
-          <input name="chave_pix" placeholder="ID Pix" required onChange={handleChange}
+          <input name="chave_pix" placeholder="ID Pix" required value={form.chave_pix} onChange={handleChange}
             className="w-full mb-2 border rounded-lg px-3 py-2 text-sm" />
-          <p className="text-xs text-[#993C1D]">A chave Pix deve ser obrigatoriamente do(a) próprio(a) contratado(a).</p>
+          <p className="text-xs text-black"><span className="font-bold">Observação:</span> a chave Pix deve ser obrigatoriamente do(a) próprio(a) contratado(a).</p>
         </section>
 
         <section className="bg-white mx-4 mt-4 rounded-xl p-5 border border-[#D3D1C7]">
