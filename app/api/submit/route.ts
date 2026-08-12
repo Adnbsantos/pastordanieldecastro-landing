@@ -11,55 +11,46 @@ const supabase = createClient(
 // 3) enviar por e-mail para adnbsantos@gmail.com
 const DOSSIE_WORKER_URL = process.env.DOSSIE_WORKER_URL!;
 
-async function uploadFile(file: File, path: string) {
-  const bytes = await file.arrayBuffer();
-  const { error } = await supabase.storage
-    .from("danieldecastro-docs")
-    .upload(path, bytes, { contentType: file.type, upsert: true });
-  if (error) throw error;
-  return path;
-}
-
+// Os arquivos já foram enviados DIRETO pro Supabase Storage pelo navegador
+// (via /api/upload-url + URLs assinadas), então aqui só recebemos os
+// caminhos (texto) — nunca mais o binário dos arquivos. Isso elimina o
+// limite de 4,5 MB por requisição da Vercel, que antes derrubava envios
+// com foto grande sem deixar nenhum rastro no servidor.
 export async function POST(req: NextRequest) {
   try {
-    const form = await req.formData();
-
-    const nome_completo = form.get("nome_completo") as string;
-    const cpf = form.get("cpf") as string;
-    const data_nascimento = form.get("data_nascimento") as string;
-    const endereco = form.get("endereco") as string;
-    const bairro = form.get("bairro") as string;
-    const cep = form.get("cep") as string;
-    const cidade = form.get("cidade") as string;
-    const uf = form.get("uf") as string;
-    const whatsapp = form.get("whatsapp") as string;
-    const instagram = form.get("instagram") as string;
-    const chave_pix = form.get("chave_pix") as string;
-    const ra_detectada = form.get("ra_detectada") as string;
-    const setor_detectado = form.get("setor_detectado") as string;
-    const latitude = form.get("latitude") ? Number(form.get("latitude")) : null;
-    const longitude = form.get("longitude") ? Number(form.get("longitude")) : null;
-    const termo_aceito = form.get("termo_aceito") === "true";
+    const body = await req.json();
+    const {
+      nome_completo,
+      cpf,
+      data_nascimento,
+      endereco,
+      bairro,
+      cep,
+      cidade,
+      uf,
+      whatsapp,
+      instagram,
+      chave_pix,
+      ra_detectada,
+      setor_detectado,
+      latitude,
+      longitude,
+      termo_aceito,
+      foto_path,
+      documento_path,
+      certidao_tse_path,
+    } = body;
 
     if (!termo_aceito) {
       return NextResponse.json({ error: "É necessário concordar com os termos." }, { status: 400 });
     }
 
-    const foto = form.get("foto") as File | null;
-    const documento = form.get("documento") as File | null;
-    const certidaoTse = form.get("certidao_tse") as File | null;
-
-    if (!foto || !documento || !certidaoTse) {
+    if (!foto_path || !documento_path || !certidao_tse_path) {
       return NextResponse.json(
         { error: "Foto, documento com foto e certidão do TSE são obrigatórios." },
         { status: 400 }
       );
     }
-
-    const folder = `${cpf.replace(/\D/g, "")}-${Date.now()}`;
-    const foto_path = await uploadFile(foto, `${folder}/foto.jpg`);
-    const documento_path = await uploadFile(documento, `${folder}/documento.pdf`);
-    const certidao_tse_path = await uploadFile(certidaoTse, `${folder}/certidao_tse.pdf`);
 
     const ip = req.headers.get("x-forwarded-for") ?? "desconhecido";
     const userAgent = req.headers.get("user-agent") ?? "desconhecido";
@@ -80,8 +71,8 @@ export async function POST(req: NextRequest) {
         chave_pix,
         ra_detectada,
         setor_detectado,
-        latitude,
-        longitude,
+        latitude: latitude ?? null,
+        longitude: longitude ?? null,
         foto_path,
         documento_path,
         certidao_tse_path,
@@ -122,3 +113,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message ?? "Erro inesperado" }, { status: 500 });
   }
 }
+

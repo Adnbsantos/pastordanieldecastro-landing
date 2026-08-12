@@ -1,9 +1,41 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
 
 const TERMO_RESUMO =
   "Prestação de serviço temporário, sem vínculo empregatício - Vigência 16/08/2026 a 04/10/2026.";
+
+// Fotos de câmera de celular costumam vir com 4-8 MB, e a Vercel rejeita
+// requisições acima de 4,5 MB antes mesmo de chegar no nosso código —
+// sem deixar rastro nenhum e com uma mensagem de erro genérica. Por isso
+// comprimimos qualquer imagem no navegador antes de enviar.
+async function comprimirImagem(file: File, larguraMaxima = 1000, qualidade = 0.6): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+
+  const bitmap = await createImageBitmap(file);
+  const escala = Math.min(1, larguraMaxima / bitmap.width);
+  const largura = Math.round(bitmap.width * escala);
+  const altura = Math.round(bitmap.height * escala);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = largura;
+  canvas.height = altura;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return file;
+  ctx.drawImage(bitmap, 0, 0, largura, altura);
+
+  const blob: Blob | null = await new Promise((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", qualidade)
+  );
+  if (!blob) return file;
+
+  // Se por algum motivo a versão comprimida ficou maior (imagem já pequena),
+  // mantém o arquivo original.
+  if (blob.size >= file.size) return file;
+
+  return new File([blob], file.name.replace(/\.\w+$/, ".jpg"), { type: "image/jpeg" });
+}
 
 const TERMO_COMPLETO = `TERMO DE CONCORDÂNCIA E CONTRATO DE PRESTAÇÃO DE SERVIÇO TEMPORÁRIO DE CAMPANHA
 
@@ -87,6 +119,8 @@ export default function Home() {
   });
   const [foto, setFoto] = useState<File | null>(null);
   const [documento, setDocumento] = useState<File | null>(null);
+  const [comprimindoFoto, setComprimindoFoto] = useState(false);
+  const [comprimindoDocumento, setComprimindoDocumento] = useState(false);
   const [certidaoTse, setCertidaoTse] = useState<File | null>(null);
   const [geo, setGeo] = useState<{ ra: string | null; setor: string | null; lat: number | null; lng: number | null }>({
     ra: null,
@@ -148,33 +182,64 @@ export default function Home() {
     setEnviando(true);
     setStatus("idle");
 
-    const data = new FormData();
-    Object.entries(form).forEach(([k, v]) => {
-      if (k === "data_nascimento") {
-        data.append(k, dataNascimentoParaISO(v));
-      } else {
-        data.append(k, v);
-      }
-    });
-    data.append("ra_detectada", geo.ra ?? "");
-    data.append("setor_detectado", geo.setor ?? "");
-    if (geo.lat) data.append("latitude", String(geo.lat));
-    if (geo.lng) data.append("longitude", String(geo.lng));
-    data.append("termo_aceito", "true");
-    data.append("foto", foto);
-    data.append("documento", documento);
-    data.append("certidao_tse", certidaoTse);
-
     try {
-      const res = await fetch("/api/submit", { method: "POST", body: data });
+      // 1) Pede 3 URLs assinadas de upload — essa chamada é só texto (JSON
+      // pequeno), nunca esbarra em limite de tamanho.
+      const resUrls = await fetch("/api/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cpf: form.cpf }),
+      });
+      const dadosUrls = await resUrls.json().catch(() => ({}));
+      if (!resUrls.ok) {
+        setErroMsg(dadosUrls.error || "Não foi possível preparar o envio dos documentos.");
+        setStatus("erro");
+        return;
+      }
+
+      // 2) Sobe cada arquivo DIRETO pro Supabase Storage, usando a URL
+      // assinada — o arquivo nunca passa pela função da Vercel, então o
+      // limite de 4,5 MB dela deixa de existir.
+      const uploads: [File, { path: string; token: string }][] = [
+        [foto, dadosUrls.urls.foto],
+        [documento, dadosUrls.urls.documento],
+        [certidaoTse, dadosUrls.urls.certidao_tse],
+      ];
+
+      for (const [arquivo, alvo] of uploads) {
+        const { error } = await supabase.storage
+          .from("danieldecastro-docs")
+          .uploadToSignedUrl(alvo.path, alvo.token, arquivo);
+        if (error) throw error;
+      }
+
+      // 3) Envia só os dados de texto + os caminhos dos arquivos já
+      // enviados — payload pequeno, sem risco de estourar limite.
+      const res = await fetch("/api/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          data_nascimento: dataNascimentoParaISO(form.data_nascimento),
+          ra_detectada: geo.ra ?? "",
+          setor_detectado: geo.setor ?? "",
+          latitude: geo.lat,
+          longitude: geo.lng,
+          termo_aceito: true,
+          foto_path: dadosUrls.urls.foto.path,
+          documento_path: dadosUrls.urls.documento.path,
+          certidao_tse_path: dadosUrls.urls.certidao_tse.path,
+        }),
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setErroMsg(json.error || "Não foi possível enviar. Verifique os campos e tente novamente.");
+        setErroMsg(json.error || "Não foi possível concluir o envio. Tente novamente.");
         setStatus("erro");
         return;
       }
       setStatus("sucesso");
-    } catch {
+    } catch (err: any) {
+      console.error(err);
       setErroMsg("Não foi possível enviar. Verifique sua conexão e tente novamente.");
       setStatus("erro");
     } finally {
@@ -270,7 +335,9 @@ export default function Home() {
             <label className={`flex-1 border rounded-lg p-3 text-center text-xs cursor-pointer ${
               foto ? "border-green-500 bg-green-50 text-green-800" : "border-dashed border-[#B4B2A9]"
             }`}>
-              {foto ? (
+              {comprimindoFoto ? (
+                <span className="text-[#5F5E5A]">Otimizando foto...</span>
+              ) : foto ? (
                 <span className="flex flex-col items-center gap-1">
                   <span className="text-green-600 text-base leading-none">✓</span>
                   <span className="truncate max-w-full">{foto.name}</span>
@@ -280,12 +347,23 @@ export default function Home() {
                 "Sua foto aqui"
               )}
               <input type="file" accept="image/*" capture="user" className="hidden"
-                onChange={(e) => setFoto(e.target.files?.[0] ?? null)} required />
+                onChange={async (e) => {
+                  const arquivo = e.target.files?.[0] ?? null;
+                  if (!arquivo) { setFoto(null); return; }
+                  setComprimindoFoto(true);
+                  try {
+                    setFoto(await comprimirImagem(arquivo));
+                  } finally {
+                    setComprimindoFoto(false);
+                  }
+                }} required />
             </label>
             <label className={`flex-1 border rounded-lg p-3 text-center text-xs cursor-pointer ${
               documento ? "border-green-500 bg-green-50 text-green-800" : "border-dashed border-[#B4B2A9]"
             }`}>
-              {documento ? (
+              {comprimindoDocumento ? (
+                <span className="text-[#5F5E5A]">Otimizando...</span>
+              ) : documento ? (
                 <span className="flex flex-col items-center gap-1">
                   <span className="text-green-600 text-base leading-none">✓</span>
                   <span className="truncate max-w-full">{documento.name}</span>
@@ -295,7 +373,16 @@ export default function Home() {
                 "RG ou CNH"
               )}
               <input type="file" accept="image/*,application/pdf" className="hidden"
-                onChange={(e) => setDocumento(e.target.files?.[0] ?? null)} required />
+                onChange={async (e) => {
+                  const arquivo = e.target.files?.[0] ?? null;
+                  if (!arquivo) { setDocumento(null); return; }
+                  setComprimindoDocumento(true);
+                  try {
+                    setDocumento(await comprimirImagem(arquivo));
+                  } finally {
+                    setComprimindoDocumento(false);
+                  }
+                }} required />
             </label>
           </div>
           <label className={`block border rounded-lg p-3 text-center cursor-pointer ${
@@ -339,7 +426,7 @@ export default function Home() {
         </section>
 
         <div className="px-4 py-5">
-          <button type="submit" disabled={!aceitouTermo || enviando}
+          <button type="submit" disabled={!aceitouTermo || enviando || comprimindoFoto || comprimindoDocumento}
             className="w-full bg-[#F0C24A] text-[#412402] font-medium py-3 rounded-lg text-sm disabled:opacity-50">
             {enviando ? "Enviando..." : "Assinar termo digitalmente"}
           </button>
