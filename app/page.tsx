@@ -49,7 +49,7 @@ CLÁUSULA 2ª — DA VIGÊNCIA
 De 16 de agosto de 2026 a 04 de outubro de 2026, podendo ser encerrado antecipadamente mediante aviso prévio de 48 horas.
 
 CLÁUSULA 3ª — DO VALOR
-R$ 2.250,00 (dois mil, duzentos e cinquenta reais), pago via Pix na chave informada neste cadastro — que deve ser obrigatoriamente do(a) próprio(a) contratado(a).
+R$ 3.000,00 (três mil reais), pago via Pix na chave informada neste cadastro — que deve ser obrigatoriamente do(a) próprio(a) contratado(a).
 
 CLÁUSULA 4ª — DA NATUREZA DA RELAÇÃO
 Este termo não caracteriza vínculo empregatício.
