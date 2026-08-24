@@ -253,7 +253,7 @@ export default function Home() {
         <div className="max-w-md text-center bg-white rounded-xl p-8 border border-[#D3D1C7]">
           <h1 className="text-lg font-medium text-[#1B2559] mb-2">Cadastro enviado!</h1>
           <p className="text-sm text-[#5F5E5A]">
-            Recebemos seus dados e documentos. Em breve nossa equipe entra em contato pelo WhatsApp.
+            Recebemos seus dados e documentos.
           </p>
         </div>
       </main>
